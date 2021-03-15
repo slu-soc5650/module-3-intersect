@@ -1,0 +1,198 @@
+---
+title: "Meeting Examples"
+author: "Christopher Prener, Ph.D."
+date: '(`r format(Sys.time(), "%B %d, %Y")`)'
+output: github_document
+---
+
+## Introduction
+This notebook reviews projections from last week and introduces skills for joins in `R`.
+
+## Dependencies
+This notebook requires a number of different packages:
+
+```{r load-packages}
+# tidyverse packages
+library(dplyr)
+library(ggplot2)
+library(readr)
+
+# spatial packages
+library(mapview)
+library(sf)
+library(tigris)
+
+# other packages
+library(here)
+library(viridis)
+```
+
+## Load Data
+This notebook requires a number of data sets:
+
+```{r load-data}
+# spatial data - census tracts with total area and population
+pop <- st_read(here("data", "example-data", "STL_DEMOS_Pop", "STL_DEMOS_Pop.shp"),
+               stringsAsFactors = FALSE)
+
+# spatial data - north city 
+north_city <- st_read(here("data", "example-data", "STL_REGIONS_NorthCity", "STL_REGIONS_NorthCity.shp"),
+               stringsAsFactors = FALSE)
+
+# tabular data - 2012 murders in St. Louis
+murders <- read_csv(here("data", "example-data", "STL_CRIME_Murders12.csv"))
+```
+
+## Project the Homicide Data
+The homicide data are tabular, and have two columns named `x` and `y`. Our first goal is to determine what projection they're encoded with. We can get a preview of their values with `str()`:
+
+```{r preview-homicides}
+str(murders)
+```
+
+What possibilities exist for coordinate systems?
+
+```{r project-homicides}
+# solution - state plane east, feet
+murders_sf <- st_as_sf(murders, coords = c("x", "y"), crs = "+proj=tmerc +lat_0=35.83333333333334 +lon_0=-90.5 +k=0.9999333333333333 +x_0=250000 +y_0=0 +ellps=GRS80 +datum=NAD83 +to_meter=0.3048006096012192 +no_defs")
+
+# verify solution
+mapview(murders_sf)
+```
+
+The correct answer is that these data are in Missouri State Plane East (Feet), which has a CRS value of 102696. Unfortunately, it is no longer an accessible projection in `R`, so we need to use the full `Proj4` string.
+
+## Convert All to Same Projection
+Currently, our data are in three different projection systems:
+
+```r
+# murders
+st_crs(murders_sf)
+
+# tracts 
+st_crs(pop)
+
+# north city
+st_crs(north_city)
+```
+
+In order to geoprocess and map our data, we want to convert them all to the same coordinate system:
+
+```{r convert-projections}
+# murders
+murders_sf <- st_transform(murders_sf, crs = 26915)
+
+# tracts
+pop <- st_transform(pop, crs = 26915)
+
+# north city
+north_city <- st_transform(north_city, crs = 26915)
+```
+
+We're now ready to move on to our geoprocessing operations.
+
+## Identify Points
+Our first goal is to identify points - we want to label each homicide with the tract identification number for the tract the homicide occurred in. We'll use `st_intersection()` for this:
+
+```{r identify-homicides}
+
+```
+
+Notice how we use `select()` to subset our data's columns so that we keep our output data as tidy as possible. Also notice how the number of observations does not change. This is a critical thing to check, because it lets us know that all of the homicides were correctly geocoded. If `murders_tract` had a smaller number of homicides, that would let us know that some homicides occurred outside of the Census tract boundaries.
+
+We can now preview these data and see the change:
+
+```{r preview-identify}
+mapview(murders_tract)
+```
+
+## Aggregate Points
+With identifiers applied to our data, we can aggregate them if we also want counts of homicides by tract. 
+
+```{r aggregate}
+
+```
+
+It's really important to consider whether `NA` values should be replaced with zeros. In this case, we consider the City's data on crimes authoritative, and so infer that if a tract has no murders, it means that there were zero homicides there. We cannot always make this assumption, however. Consider graffiti calls for service in the CSB data for the final project. Does `NA` mean no graffiti, or no calls? Considering the meaning of `NAs` is so important as you clean data.
+
+### Plot Data
+We can now plot homicides by population density:
+
+```{r murder-population-density}
+ggplot() +
+  geom_sf(data = murderPop, mapping = aes(fill = (homicides/POP_E)*1000)) +
+  scale_fill_viridis()
+```
+
+We can also plot by area density:
+
+```{r murder-area-density}
+ggplot() +
+  geom_sf(data = murderPop, mapping = aes(fill = homicides/SQKM)) +
+  scale_fill_viridis()
+```
+
+## Selecting by Area
+If we want a data set of only homicides for a certain area, like North City, *and* we have the geometric data for that region, we can subset our data by that geometric area.
+
+```{r select-by-area}
+
+```
+
+Remember that we should expect `murders_nc` to shrink in terms of its overall number of observations, since not all homicides occur in North City.
+
+## Replicating Desktop GIS Intersects
+If we were using a desktop GIS tool, the intersect functionality would return all of the points of homicides after an intersect with our North City data. If we want to replicate this functionality, we can add `st_difference()` into our workflow. This will give us the homicides that did not fall in North City:
+
+```{r select-by-difference}
+
+```
+
+It is important to modify the `region` output because `st_difference()` combines the attribute table, inadvertently labeling our homicides with `region` being set equal to `North City`. This is not the actual desired outcome.
+
+Once we have our difference data, we can bind them together:
+
+```{r bind}
+
+```
+
+The `arrange()` call puts our observations back in temporal order.
+
+## Intersects with Other Types of Geometric Data
+I want to quickly illustrate how intersects behave when we have other types of geometric data. 
+
+### Line Data
+First, let's illustrate intersects with line and polygon data. We'll use `tigris` to get some street data for St. Louis, and then intersect it with our North City polygon. First, we'll download and wrangle our street data:
+
+```{r get-roads}
+## download
+roads <- roads(state = 29, county = 510) %>%
+  st_transform(crs = 26915) %>%
+  select(LINEARID, FULLNAME)
+
+## preview
+mapview(roads)
+```
+
+Now that we have some line data, lets identify street centerlines in North City:
+
+```{r intersect-roads}
+
+```
+
+Our map is blank! Sometimes, geometric operations change our data from `POINT`, `LINESTRING`, or `POLYGON` to what we call "geometry collections." These data do not map as expected. We can extract these back to their desired type of geometry and then they should preview:
+
+```{r intersect-roads-correct}
+
+```
+
+Hm, this isn't ideal either. This behavior, once we've visually verified that our data have the correct `geometry` type, appears to be a bug in `mapview`. Try running the code in your console instead! It should map correctly.
+
+### Polygon Data
+Next, let's illustrate an intersect with two sets of polygon data. We'll get the portions of census tracts that lie in North City:
+
+```{r intersect-tracts}
+
+```
+
+Excellent!

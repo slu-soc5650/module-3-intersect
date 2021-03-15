@@ -1,0 +1,152 @@
+---
+title: "Lab-07 Replication"
+author: "Branson Fox, BA and Christopher Prener, PhD"
+date: '(`r format(Sys.time(), "%B %d, %Y")`)'
+output: github_document
+---
+
+## Introduction
+This notebook replicates the results for lab-07 - Density of Public Schools in Missouri.
+
+## Dependencies
+This notebook requires the following packages to manipulate our data and create maps.
+
+```{r load-packages}
+# tidyverse packages
+library(dplyr)   # methods for data manipulation
+library(ggplot2) # making plots/maps
+
+# other packages
+library(sf)      # tools for spatial 
+library(here)    # file path management
+library(mapview) # interactive exploratory map
+library(viridis) # accessible color palettes
+```
+
+## Load Data
+This notebook requires the K-12 Schools data and the County Population data:
+
+```{r load-data}
+schools <- st_read(here("data","MO_EDU_PublicK12","MO_EDU_PublicK12.shp"))
+counties <- st_read(here("data","MO_DEMOS_CountyPop","MO_DEMOS_CountyPop.shp"))
+```
+
+## Part 1: Data Preparation
+### Question 1
+We'll begin by checking that our data are in the same coordinate system.
+
+```{r p1-q1}
+st_crs(schools)
+st_crs(counties)
+```
+
+Our data are in the same coordinate system, but they need to be projected to something appropriate for statewide Missouri data. We'll use UTM 15N, epsg 26915, because it captures most of the extent of Missouri.
+
+```{r reproject}
+schools <- st_transform(schools, crs = 26915)
+counties <- st_transform(counties, crs = 26915)
+```
+
+Next, we need to create a spatial join that identifies the county each school is located in. We pipe into a select function in order to remove the extra county variables. 
+
+```{r spatial join}
+schools_county <- st_intersection(schools, counties) %>%
+  select(id, school, address, city, NAMELSAD)
+```
+
+Next, we want to create a subset of schools in the City of Saint Louis.
+
+```{r subset stl schools}
+stlSchools <- filter(schools_county, NAMELSAD == "St. Louis city")
+```
+
+Before exporting this we'll preview the data we subset.
+
+```{r preview stl}
+mapview(stlSchools)
+```
+
+And since the data look good, we'll save this to a new shapefile.
+
+```{r save shape}
+st_write(stlSchools, dsn = here("data","STL_EDU_PublicK12","STL_EDU_PublicK12.shp"), delete_dsn = TRUE)
+```
+
+We'll do another spatial join, aggregating schools in all counties in Missouri and combine them with county data.
+
+```{r aggregate schools}
+# aggregate
+schools_county %>%
+  group_by(NAMELSAD) %>%
+  summarise(schools = n()) -> schoolsByCounty
+
+# remove geometry
+st_geometry(schoolsByCounty) <- NULL
+
+# join data
+schoolsByCounty <- left_join(counties, schoolsByCounty, by = "NAMELSAD")
+```
+
+And now it's ready to be written to a shapefile.
+
+```{r schools shape}
+st_write(schoolsByCounty, dsn = here("data", "MO_EDU_County", "MO_EDU_County.shp"), delete_dsn = TRUE)
+```
+
+
+## Part 2: Mapping the Density of Schools in Missouri
+### Question 2
+We'll map the density of schools per square kilometer in each county. First we need to calculate this number.
+
+```{r calc density}
+schoolsByCounty <- mutate(schoolsByCounty, school_density = schools/SQKM)
+```
+
+Then to create a choropleth map:
+
+```{r ggplot1}
+ggplot() +
+  geom_sf(data = schoolsByCounty, mapping = aes(fill = school_density)) +
+  theme_minimal() +
+  labs(
+    title = "Density of Public Schools By Missouri County",
+    caption = "Map by Branson Fox, BA and Christopher Prener, PhD"
+  ) +
+  scale_fill_viridis(direction = -1, name = "Schools per\nSquare Kilometer") -> gg_density_km
+
+gg_density_km
+```
+
+And to save it:
+
+```{r ggsave1}
+ggsave(here("results", "schoolsDensityKM.png"), plot = gg_density_km, dpi = 500)
+```
+
+### Question 3
+We'll map the density of schools per 1,000 residents in each county. First we need to calculate this number.
+
+```{r calc density2}
+schoolsByCounty <- mutate(schoolsByCounty, school_per_1k = schools/TOTALPOP * 1000)
+```
+
+Then to create a choropleth map:
+
+```{r ggplot2}
+ggplot() +
+  geom_sf(data = schoolsByCounty, mapping = aes(fill = school_per_1k)) +
+  theme_minimal() +
+  labs(
+    title = "Density of Schools By Missouri County",
+    caption = "Map by Branson Fox, BA and Christopher Prener, PhD"
+  ) +
+  scale_fill_viridis(direction = -1, name = "Schools per\n1,000 Residents") -> gg_density_1k
+
+gg_density_1k
+```
+
+And to save it:
+
+```{r ggsave2}
+ggsave(here("results", "schoolsDensity1k.png"), plot = gg_density_1k, dpi = 500)
+```
