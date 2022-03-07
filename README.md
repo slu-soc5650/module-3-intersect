@@ -7,11 +7,11 @@ module-3-intersect <img src="https://slu-soc5650.github.io/images/icon_hu137d436
 [![](https://img.shields.io/github/repo-size/slu-soc5650/module-3-intersect.svg)](https://github.com/slu-soc5650/module-3-intersect)
 
 ## Module 2 - Data Cleaning
-These materials correspond to the seventh course meeting of SOC 4650 and SOC 5650, which is focused on completing spatial joins using the `st_intersect()` function in `R`.
+These materials correspond to the seventh course meeting of SOC 4650 and SOC 5650, which is focused on completing spatial joins using ArcGIS Pro.
 
 ## Lesson Quick Start
 ### Install Software
-Make sure you've installed all of the packages listed [here](https://slu-soc5650.github.io/docs/start_prep/#r-packages) as well as `usethis`:
+If you want to complete this in `R` instead, check out the `extras/` folder. Make sure you've installed all of the packages listed [here](https://slu-soc5650.github.io/docs/start_prep/#r-packages) as well as `usethis`:
 
 ```r
 install.packages("usethis")
